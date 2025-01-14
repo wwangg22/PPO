@@ -25,6 +25,7 @@ class ValueNetwork(nn.Module):
         )
         self.loss_fn = nn.MSELoss()
         self.step = 0
+        self.gamma =0.99
         self.target_update = update_target_step
 
     def updateTarget(self, tau):
@@ -46,10 +47,21 @@ class ValueNetwork(nn.Module):
 
         return pred
     
-    def update(self, observations, advantages):
+    def update(self, observations, advantages, reward, done ,next_observations):
         if isinstance(observations, np.ndarray):
             observations = torch.from_numpy(observations).float()
         observations = observations.to(device)
+        if isinstance(next_observations, np.ndarray):
+            next_observations = torch.from_numpy(next_observations).float()
+        next_observations = next_observations.to(device)
+
+        if isinstance(reward, np.ndarray):
+            reward = torch.from_numpy(reward).float()
+        reward = reward.to(device)
+
+        if isinstance(done, np.ndarray):
+            done = torch.from_numpy(done).float()
+        done = done.to(device)
 
         if isinstance(advantages, np.ndarray):
             advantages = torch.from_numpy(advantages).float()
@@ -57,10 +69,14 @@ class ValueNetwork(nn.Module):
         value_pred = self.model(observations)
 
         with torch.no_grad():
+            # if self.use_target:
+            #     value_target = self.target(observations) + advantages
+            # else:
+            #     value_target = self.model(observations) + advantages
             if self.use_target:
-                value_target = self.target(observations) + advantages
+                value_target = reward + (1 - done) * self.gamma * self.target(next_observations)
             else:
-                value_target = self.model(observations) + advantages
+                value_target = reward + (1 - done) * self.gamma * self.model(next_observations)
         
         loss = self.loss_fn(value_pred, value_target)
 
@@ -214,14 +230,14 @@ class PPOAgent(nn.Module):
         """
         observations = sample["observations"]
         actions = sample["actions"]
-        # rewards = sample["rewards"]
-        # next_observations = sample["next_observations"]
-        # dones = sample["dones"]
+        rewards = sample["rewards"]
+        next_observations = sample["next_observations"]
+        dones = sample["dones"]
         advantages = sample["advantages"]
         log_probs = sample["log_probs"]
 
-        val_loss = self.value.update(observations, advantages)
+        val_loss = self.value.update(observations, advantages, rewards, dones, next_observations)
 
         actor_loss = self.update_actor(observations,actions, advantages, log_probs)
-
+        # print("val loss", val_loss)
         return val_loss, actor_loss
